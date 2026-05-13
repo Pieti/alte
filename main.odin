@@ -1,0 +1,38 @@
+package main
+
+import "core:fmt"
+import "core:os"
+import "core:sys/linux"
+import "core:sys/posix"
+
+enableRawMode :: proc() -> posix.termios {
+	orig: posix.termios
+	posix.tcgetattr(posix.STDIN_FILENO, &orig)
+
+	raw := orig
+	raw.c_lflag &~= {.ECHO, .ICANON}
+	raw.c_cc[.VMIN] = 1
+	raw.c_cc[.VTIME] = 0
+	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw)
+	return orig
+}
+
+disableRawMode :: proc(orig: ^posix.termios) {
+	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, orig)
+}
+
+main :: proc() {
+	orig := enableRawMode()
+	defer disableRawMode(&orig)
+
+	buf: [1]u8
+	for {
+		n, err := linux.read(linux.STDIN_FILENO, buf[:])
+		if err != .NONE || n == 0 {
+			continue
+		}
+		if buf[0] == 'q' {
+			break
+		}
+	}
+}
