@@ -14,8 +14,8 @@ enableRawMode :: proc() -> posix.termios {
 	raw.c_oflag &~= {.OPOST}
 	raw.c_cflag |= {.CS8}
 	raw.c_lflag &~= {.ECHO, .ICANON, .IEXTEN, .ISIG}
-	raw.c_cc[.VMIN] = 1
-	raw.c_cc[.VTIME] = 0
+	raw.c_cc[.VMIN] = 0
+	raw.c_cc[.VTIME] = 1
 	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw)
 	return orig
 }
