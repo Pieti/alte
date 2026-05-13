@@ -7,7 +7,9 @@ import "core:sys/posix"
 
 enableRawMode :: proc() -> posix.termios {
 	orig: posix.termios
-	posix.tcgetattr(posix.STDIN_FILENO, &orig)
+	if posix.tcgetattr(posix.STDIN_FILENO, &orig) != .OK {
+		panic("tcgetattr failed")
+	}
 
 	raw := orig
 	raw.c_iflag &~= {.BRKINT, .ICRNL, .INPCK, .ISTRIP, .IXON}
@@ -16,7 +18,9 @@ enableRawMode :: proc() -> posix.termios {
 	raw.c_lflag &~= {.ECHO, .ICANON, .IEXTEN, .ISIG}
 	raw.c_cc[.VMIN] = 0
 	raw.c_cc[.VTIME] = 1
-	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw)
+	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
+		panic("tcsetattr failed")
+	}
 	return orig
 }
 
@@ -31,8 +35,11 @@ main :: proc() {
 	buf: [1]u8
 	for {
 		n, err := linux.read(linux.STDIN_FILENO, buf[:])
-		if err != .NONE || n == 0 {
+		if n == 0 {
 			continue
+		}
+		if err != .NONE {
+			panic("read failed")
 		}
 		if buf[0] == 'q' {
 			break
