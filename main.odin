@@ -34,5 +34,10 @@ main :: proc() {
 		if buf[0] == 'q' {
 			break
 		}
+		if buf[0] < 32 || buf[0] == 127 {
+			fmt.printf("%d\r\n", buf[0])
+		} else {
+			fmt.printf("%d ('%c')\r\n", buf[0], buf[0])
+		}
 	}
 }
