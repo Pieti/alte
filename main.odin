@@ -25,6 +25,17 @@ editor_config :: struct {
 
 editor : editor_config
 
+Direction :: enum {
+	Up,
+	Down,
+	Left,
+	Right
+}
+
+Key :: union {
+	u8,
+	Direction,
+}
 
 init_editor :: proc() -> bool {
 	rows, cols, ok := get_window_size()
@@ -44,26 +55,25 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 	fmt.sbprintf(sb, "\x1b[%d;%dH", row+1, col+1)
 }
 
-move_cursor :: proc(key: u8) {
-	switch key {
-	case 'h':
+move_cursor :: proc(direction: Direction) {
+	switch direction {
+	case Direction.Left:
 		if editor.cx != 0 {
 			editor.cx -= 1
 		}
-	case 'l':
+	case Direction.Right:
 		if editor.cx != editor.cols-1 {
 			editor.cx += 1
 		}
-	case 'k':
+	case Direction.Up:
 		if editor.cy != 0 {
 			editor.cy -= 1
 		}
-	case 'j':
+	case Direction.Down:
 		if editor.cy != editor.rows-1 {
 			editor.cy += 1
 		}
 	}
-
 }
 
 
@@ -105,7 +115,7 @@ get_window_size :: proc() -> (rows: int, cols: int, ok: bool) {
 	return int(ws.ws_row), int(ws.ws_col), true
 }
 
-read_key :: proc() -> (u8, bool) {
+read_key :: proc() -> (Key, bool) {
 	buf: [1]u8
 	for {
 		n, err := linux.read(linux.STDIN_FILENO, buf[:])
@@ -125,14 +135,10 @@ read_key :: proc() -> (u8, bool) {
 			}
 			if seq[0] == '[' {
 				switch seq[1] {
-				case 'A':
-					return 'k', true
-				case 'B':
-					return 'j', true
-				case 'C':
-					return 'l', true
-				case 'D':
-					return 'h', true
+				case 'A': return Direction.Up, true
+				case 'B': return Direction.Down, true
+				case 'C': return Direction.Right, true
+				case 'D': return Direction.Left, true
 				}
 			}
 			return u8('\x1b'), true
@@ -147,11 +153,22 @@ process_key :: proc() -> bool {
 	if !ok {
 		return false
 	}
-	switch key {
-	case ctrl_key('q'):
-		return false
-	case 'h', 'j', 'k', 'l':
-		move_cursor(key)
+	switch k in key {
+	case u8:
+		switch k {
+		case ctrl_key('q'):
+			return false
+		case 'h':
+			move_cursor(Direction.Left)
+		case 'l':
+			move_cursor(Direction.Right)
+		case 'k':
+			move_cursor(Direction.Up)
+		case 'j':
+			move_cursor(Direction.Down)
+		}
+	case Direction:
+		move_cursor(k)
 	}
 	return true
 }
