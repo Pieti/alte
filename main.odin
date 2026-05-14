@@ -23,6 +23,7 @@ Row :: struct {
 
 Editor_Config :: struct {
 	cx, cy: int,
+	rowd, cold: int,
 	height: int,
 	width: int,
 	rows: [dynamic]Row,
@@ -88,14 +89,27 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 }
 
 move_cursor :: proc(key: Key) {
+	row : Row
+	if len(editor.rows) > 0 {
+		row = editor.rows[editor.cy]
+	} else {
+		row.chars = make([dynamic]u8, 0)
+	}
+
 	#partial switch key {
 	case Key.Left:
 		if editor.cx > 0 {
 			editor.cx -= 1
+		} else if editor.cy > 0 {
+			editor.cy -= 1
+			editor.cx = len(editor.rows[editor.cy].chars)
 		}
 	case Key.Right:
-		if editor.cx < editor.width {
+		if editor.cx < len(row.chars) {
 			editor.cx += 1
+		} else if editor.cy < len(editor.rows) - 1 {
+			editor.cy += 1
+			editor.cx = 0
 		}
 	case Key.Up:
 		if editor.cy > 0 {
@@ -108,11 +122,18 @@ move_cursor :: proc(key: Key) {
 	case Key.Home:
 		editor.cx = 0
 	case Key.End:
-		editor.cx = editor.width-1
+		editor.cx = len(row.chars)
 	case Key.PageUp:
 		editor.cy = 0
 	case Key.PageDown:
-		editor.cy = editor.height-1
+		editor.cy = editor.rowd + editor.height - 1
+	}
+
+	if editor.cy >= len(editor.rows) {
+		editor.cy = len(editor.rows) - 1
+	}
+	if editor.cx > len(editor.rows[editor.cy].chars) {
+		editor.cx = len(editor.rows[editor.cy].chars)
 	}
 }
 
@@ -236,19 +257,36 @@ clear_screen :: proc() {
 }
 
 refresh_screen :: proc(sb: ^strings.Builder) {
+	scroll()
 	strings.builder_reset(sb)
 	strings.write_string(sb, ESC_HIDE_CURSOR)
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
-	esc_cursor_pos(sb, editor.cy, editor.cx)
+	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.cx - editor.cold))
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
 }
 
+scroll :: proc() {
+	if editor.cy < editor.rowd {
+		editor.rowd = editor.cy
+	}
+	if editor.cy >= editor.rowd + editor.height {
+		editor.rowd = editor.cy - editor.height + 1
+	}
+	if editor.cx < editor.cold {
+		editor.cold = editor.cx
+	}
+	if editor.cx >= editor.cold + editor.width {
+		editor.cold = editor.cx - editor.width + 1
+	}
+}
+
 draw_rows :: proc(sb: ^strings.Builder) {
 	for y in 0..<editor.height {
-		if y >= len(editor.rows) {
-			if len(editor.rows) == 0 && y == editor.height /3 {
+		yd := y + editor.rowd
+		if yd >= len(editor.rows) {
+			if len(editor.rows) == 0 && yd == editor.height /3 {
 				welcome := WELCOME
 				welcome = welcome[:min(editor.width, len(welcome))]
 				padding := (editor.width - len(welcome)) / 2
@@ -263,8 +301,10 @@ draw_rows :: proc(sb: ^strings.Builder) {
 				strings.write_string(sb, "~")
 			}
 		} else {
-			line := editor.rows[y].chars
-			dynline := line[:min(editor.width, len(line))]
+			line := editor.rows[yd].chars
+			start := min(editor.cold, len(line))
+			end := min(editor.cold + editor.width, len(line))
+			dynline := line[start:end]
 			strings.write_string(sb, string(dynline))
 		}
 		strings.write_string(sb, ESC_ERASE_IN_LINE)
