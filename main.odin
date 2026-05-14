@@ -1,5 +1,6 @@
 package main
 
+import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
 import "core:os"
@@ -99,31 +100,37 @@ clear_screen :: proc() {
 	os.write_string(os.stdout, ESC_CURSOR_HOME)
 }
 
-refresh_screen :: proc() {
-	clear_screen()
-	draw_rows()
-	os.write_string(os.stdout, ESC_CURSOR_HOME)
+refresh_screen :: proc(sb: ^strings.Builder) {
+	sbuf := sb
+	strings.write_string(sbuf, ESC_CLEAR_SCREEN)
+	strings.write_string(sbuf, ESC_CURSOR_HOME)
+	draw_rows(sbuf)
+	strings.write_string(sbuf, ESC_CURSOR_HOME)
+	os.write_string(os.stdout, strings.to_string(sbuf^))
 }
 
-draw_rows :: proc() {
+draw_rows :: proc(sb: ^strings.Builder) {
 	for _ in 0..<editor.rows-1 {
-		os.write_string(os.stdout, "~\r\n")
+		strings.write_string(sb, "~\r\n")
 	}
-	os.write_string(os.stdout, "~")
+	strings.write_string(sb, "~")
 }
 
 main :: proc() {
 	if !enable_raw_mode() {
 		os.exit(1)
 	}
+	defer disable_raw_mode()
+
 	if !init_editor() {
 		os.exit(1)
 	}
-	defer disable_raw_mode()
 	defer clear_screen()
 
+	sb := strings.Builder{}
+	strings.builder_init(&sb)
 	for {
-		refresh_screen()
+		refresh_screen(&sb)
 		if !process_key() {
 			break
 		}
