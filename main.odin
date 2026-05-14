@@ -7,6 +7,9 @@ import "core:os"
 
 ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
+ESC_HIDE_CURSOR :: "\x1b[?25l"
+ESC_SHOW_CURSOR :: "\x1b[?25h"
+ESC_ERASE_IN_LINE :: "\x1b[K"
 
 editor_config :: struct {
 	rows: int,
@@ -101,19 +104,22 @@ clear_screen :: proc() {
 }
 
 refresh_screen :: proc(sb: ^strings.Builder) {
-	sbuf := sb
-	strings.write_string(sbuf, ESC_CLEAR_SCREEN)
-	strings.write_string(sbuf, ESC_CURSOR_HOME)
-	draw_rows(sbuf)
-	strings.write_string(sbuf, ESC_CURSOR_HOME)
-	os.write_string(os.stdout, strings.to_string(sbuf^))
+	strings.write_string(sb, ESC_HIDE_CURSOR)
+	strings.write_string(sb, ESC_CURSOR_HOME)
+	draw_rows(sb)
+	strings.write_string(sb, ESC_CURSOR_HOME)
+	strings.write_string(sb, ESC_SHOW_CURSOR)
+	os.write_string(os.stdout, strings.to_string(sb^))
 }
 
 draw_rows :: proc(sb: ^strings.Builder) {
-	for _ in 0..<editor.rows-1 {
-		strings.write_string(sb, "~\r\n")
+	for y in 0..<editor.rows {
+		strings.write_string(sb, "~")
+		strings.write_string(sb, ESC_ERASE_IN_LINE)
+		if y < editor.rows-1 {
+			strings.write_string(sb, "\r\n")
+		}
 	}
-	strings.write_string(sb, "~")
 }
 
 main :: proc() {
