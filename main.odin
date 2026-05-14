@@ -5,6 +5,10 @@ import "core:sys/linux"
 import "core:sys/posix"
 import "core:os"
 
+ALTE_VERSION :: "0.0.1"
+APP_NAME :: "Alte"
+WELCOME :: APP_NAME + " -- version " + ALTE_VERSION
+
 ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
 ESC_HIDE_CURSOR :: "\x1b[?25l"
@@ -104,6 +108,7 @@ clear_screen :: proc() {
 }
 
 refresh_screen :: proc(sb: ^strings.Builder) {
+	strings.builder_reset(sb)
 	strings.write_string(sb, ESC_HIDE_CURSOR)
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
@@ -114,7 +119,20 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 
 draw_rows :: proc(sb: ^strings.Builder) {
 	for y in 0..<editor.rows {
-		strings.write_string(sb, "~")
+		if y == editor.rows /3 {
+			welcome := WELCOME
+			welcome = welcome[:min(editor.cols, len(welcome))]
+			padding := (editor.cols - len(welcome)) / 2
+			if padding > 0 {
+				strings.write_string(sb, "~")
+			}
+			for _ in 1..<padding {
+				strings.write_string(sb, " ")
+			}
+			strings.write_string(sb, welcome)
+		} else {
+			strings.write_string(sb, "~")
+		}
 		strings.write_string(sb, ESC_ERASE_IN_LINE)
 		if y < editor.rows-1 {
 			strings.write_string(sb, "\r\n")
@@ -133,8 +151,10 @@ main :: proc() {
 	}
 	defer clear_screen()
 
-	sb := strings.Builder{}
+	sb: strings.Builder
 	strings.builder_init(&sb)
+	defer(strings.builder_destroy(&sb))
+
 	for {
 		refresh_screen(&sb)
 		if !process_key() {
