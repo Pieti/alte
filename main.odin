@@ -1,5 +1,6 @@
 package main
 
+import "core:fmt"
 import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
@@ -16,6 +17,7 @@ ESC_SHOW_CURSOR :: "\x1b[?25h"
 ESC_ERASE_IN_LINE :: "\x1b[K"
 
 editor_config :: struct {
+	cx, cy: int,
 	rows: int,
 	cols: int,
 	orig: posix.termios,
@@ -37,6 +39,33 @@ init_editor :: proc() -> bool {
 ctrl_key :: proc(k: u8) -> u8 {
 	return k & 0x1f
 }
+
+esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
+	fmt.sbprintf(sb, "\x1b[%d;%dH", row+1, col+1)
+}
+
+move_cursor :: proc(key: u8) {
+	switch key {
+	case 'h':
+		if editor.cx != 0 {
+			editor.cx -= 1
+		}
+	case 'l':
+		if editor.cx != editor.cols-1 {
+			editor.cx += 1
+		}
+	case 'k':
+		if editor.cy != 0 {
+			editor.cy -= 1
+		}
+	case 'j':
+		if editor.cy != editor.rows-1 {
+			editor.cy += 1
+		}
+	}
+
+}
+
 
 enable_raw_mode :: proc() -> bool {
 	if posix.tcgetattr(posix.STDIN_FILENO, &editor.orig) != .OK {
@@ -98,6 +127,8 @@ process_key :: proc() -> bool {
 	switch key {
 	case ctrl_key('q'):
 		return false
+	case 'h', 'j', 'k', 'l':
+		move_cursor(key)
 	}
 	return true
 }
@@ -112,7 +143,7 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 	strings.write_string(sb, ESC_HIDE_CURSOR)
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
-	strings.write_string(sb, ESC_CURSOR_HOME)
+	esc_cursor_pos(sb, editor.cy, editor.cx)
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
 }
