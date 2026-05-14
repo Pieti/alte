@@ -34,6 +34,7 @@ Key :: enum {
 	End,
 	PageUp,
 	PageDown,
+	Del,
 }
 
 Char :: union {
@@ -60,7 +61,7 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 }
 
 move_cursor :: proc(key: Key) {
-	switch key {
+	#partial switch key {
 	case Key.Left:
 		if editor.cx != 0 {
 			editor.cx -= 1
@@ -152,10 +153,13 @@ read_key :: proc() -> (Char, bool) {
 					}
 					if seq[2] == '~' {
 						switch seq[1] {
+						case '1': return Key.Home, true
+						case '3': return Key.Del, true
+						case '4': return Key.End, true
 						case '5': return Key.PageUp, true
 						case '6': return Key.PageDown, true
-						case '1', '7': return Key.Home, true
-						case '4', '8': return Key.End, true
+						case '7': return Key.Home, true	
+						case '8': return Key.End, true
 						}
 					}
 				} else {
