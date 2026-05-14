@@ -8,10 +8,23 @@ ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
 
 editor_config :: struct {
-	orig: posix.termios
+	rows: int,
+	cols: int,
+	orig: posix.termios,
 }
 
 editor : editor_config
+
+
+init_editor :: proc() -> bool {
+	rows, cols, ok := get_window_size()
+	if !ok {
+		return false
+	}
+	editor.rows = rows
+	editor.cols = cols
+	return true
+}
 
 ctrl_key :: proc(k: u8) -> u8 {
 	return k & 0x1f
@@ -37,6 +50,22 @@ enable_raw_mode :: proc() -> bool {
 
 disable_raw_mode :: proc() {
 	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &editor.orig)
+}
+
+Winsize :: struct {
+	ws_row:    u16,
+	ws_col:    u16,
+	ws_xpixel: u16,
+	ws_ypixel: u16,
+}
+
+get_window_size :: proc() -> (rows: int, cols: int, ok: bool) {
+	ws: Winsize
+	ret := linux.ioctl(linux.Fd(linux.STDOUT_FILENO), linux.TIOCGWINSZ, uintptr(rawptr(&ws)))
+	if i64(ret) < 0 || ws.ws_col == 0 {
+		return 0, 0, false
+	}
+	return int(ws.ws_row), int(ws.ws_col), true
 }
 
 read_key :: proc() -> (u8, bool) {
@@ -77,13 +106,17 @@ refresh_screen :: proc() {
 }
 
 draw_rows :: proc() {
-	for _ in 0..<24 {
+	for _ in 0..<editor.rows-1 {
 		os.write_string(os.stdout, "~\r\n")
 	}
+	os.write_string(os.stdout, "~")
 }
 
 main :: proc() {
 	if !enable_raw_mode() {
+		os.exit(1)
+	}
+	if !init_editor() {
 		os.exit(1)
 	}
 	defer disable_raw_mode()
