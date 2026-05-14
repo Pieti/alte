@@ -152,7 +152,7 @@ main :: proc() {
 	defer clear_screen()
 
 	sb: strings.Builder
-	strings.builder_init(&sb)
+	strings.builder_init_len_cap(&sb, 0, editor.rows * editor.cols)
 	defer(strings.builder_destroy(&sb))
 
 	for {
