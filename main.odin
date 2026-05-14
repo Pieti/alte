@@ -115,6 +115,29 @@ read_key :: proc() -> (u8, bool) {
 		if err != .NONE {
 			return 0, false
 		}
+		if buf[0] == '\x1b' {
+			seq: [2]u8
+			if n1, _ := linux.read(linux.STDIN_FILENO, seq[:1]); n1 == 0 {
+				return u8('\x1b'), true
+			}
+			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:]); n2 == 0 {
+				return u8('\x1b'), true
+			}
+			if seq[0] == '[' {
+				switch seq[1] {
+				case 'A':
+					return 'k', true
+				case 'B':
+					return 'j', true
+				case 'C':
+					return 'l', true
+				case 'D':
+					return 'h', true
+				}
+			}
+			return u8('\x1b'), true
+		}
+
 		return buf[0], true
 	}
 }
