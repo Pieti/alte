@@ -16,14 +16,20 @@ ESC_HIDE_CURSOR :: "\x1b[?25l"
 ESC_SHOW_CURSOR :: "\x1b[?25h"
 ESC_ERASE_IN_LINE :: "\x1b[K"
 
-editor_config :: struct {
+
+Row :: struct {
+	chars: [dynamic]u8,
+}
+
+Editor_Config :: struct {
 	cx, cy: int,
-	rows: int,
-	cols: int,
+	height: int,
+	width: int,
+	rows: [dynamic]Row,
 	orig: posix.termios,
 }
 
-editor : editor_config
+editor : Editor_Config
 
 Key :: enum {
 	Up,
@@ -43,12 +49,33 @@ Char :: union {
 }
 
 init_editor :: proc() -> bool {
-	rows, cols, ok := get_window_size()
+	height, width, ok := get_window_size()
 	if !ok {
 		return false
 	}
-	editor.rows = rows
-	editor.cols = cols
+	editor.height = height
+	editor.width = width
+	return true
+}
+
+append_row :: proc(s: string) {
+	row: Row
+	row.chars = make([dynamic]u8, len(s))
+	copy(row.chars[:], transmute([]u8)s)
+	append(&editor.rows, row)
+}
+
+editor_open :: proc(filename: string) -> bool {
+	data, err := os.read_entire_file(filename, context.allocator)
+	if err != .NONE {
+		return false
+	}
+	defer delete(data)
+
+	content := string(data)
+	for line in strings.split_lines_iterator(&content) {
+		append_row(line)
+	}
 	return true
 }
 
@@ -63,29 +90,29 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 move_cursor :: proc(key: Key) {
 	#partial switch key {
 	case Key.Left:
-		if editor.cx != 0 {
+		if editor.cx > 0 {
 			editor.cx -= 1
 		}
 	case Key.Right:
-		if editor.cx != editor.cols-1 {
+		if editor.cx < editor.width {
 			editor.cx += 1
 		}
 	case Key.Up:
-		if editor.cy != 0 {
+		if editor.cy > 0 {
 			editor.cy -= 1
 		}
 	case Key.Down:
-		if editor.cy != editor.rows-1 {
+		if editor.cy < len(editor.rows) {
 			editor.cy += 1
 		}
 	case Key.Home:
 		editor.cx = 0
 	case Key.End:
-		editor.cx = editor.cols-1
+		editor.cx = editor.width-1
 	case Key.PageUp:
 		editor.cy = 0
 	case Key.PageDown:
-		editor.cy = editor.rows-1
+		editor.cy = editor.height-1
 	}
 }
 
@@ -219,29 +246,40 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 }
 
 draw_rows :: proc(sb: ^strings.Builder) {
-	for y in 0..<editor.rows {
-		if y == editor.rows /3 {
-			welcome := WELCOME
-			welcome = welcome[:min(editor.cols, len(welcome))]
-			padding := (editor.cols - len(welcome)) / 2
-			if padding > 0 {
+	for y in 0..<editor.height {
+		if y >= len(editor.rows) {
+			if len(editor.rows) == 0 && y == editor.height /3 {
+				welcome := WELCOME
+				welcome = welcome[:min(editor.width, len(welcome))]
+				padding := (editor.width - len(welcome)) / 2
+				if padding > 0 {
+					strings.write_string(sb, "~")
+				}
+				for _ in 1..<padding {
+					strings.write_string(sb, " ")
+				}
+				strings.write_string(sb, welcome)
+			} else {
 				strings.write_string(sb, "~")
 			}
-			for _ in 1..<padding {
-				strings.write_string(sb, " ")
-			}
-			strings.write_string(sb, welcome)
 		} else {
-			strings.write_string(sb, "~")
+			line := editor.rows[y].chars
+			dynline := line[:min(editor.width, len(line))]
+			strings.write_string(sb, string(dynline))
 		}
 		strings.write_string(sb, ESC_ERASE_IN_LINE)
-		if y < editor.rows-1 {
+		if y < editor.height-1 {
 			strings.write_string(sb, "\r\n")
 		}
 	}
 }
 
 main :: proc() {
+	if len(os.args) != 2 {
+		fmt.println("Usage: alte <filename>")
+		os.exit(1)
+	}
+
 	if !enable_raw_mode() {
 		os.exit(1)
 	}
@@ -252,8 +290,12 @@ main :: proc() {
 	}
 	defer clear_screen()
 
+	if !editor_open(os.args[1]) {
+		os.exit(1)
+	}
+
 	sb: strings.Builder
-	strings.builder_init_len_cap(&sb, 0, editor.rows * editor.cols)
+	strings.builder_init_len_cap(&sb, 0, editor.height * editor.width)
 	defer(strings.builder_destroy(&sb))
 
 	for {
