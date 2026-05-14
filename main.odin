@@ -25,16 +25,20 @@ editor_config :: struct {
 
 editor : editor_config
 
-Direction :: enum {
+Key :: enum {
 	Up,
 	Down,
 	Left,
-	Right
+	Right,
+	Home,
+	End,
+	PageUp,
+	PageDown,
 }
 
-Key :: union {
+Char :: union {
 	u8,
-	Direction,
+	Key,
 }
 
 init_editor :: proc() -> bool {
@@ -55,24 +59,32 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 	fmt.sbprintf(sb, "\x1b[%d;%dH", row+1, col+1)
 }
 
-move_cursor :: proc(direction: Direction) {
-	switch direction {
-	case Direction.Left:
+move_cursor :: proc(key: Key) {
+	switch key {
+	case Key.Left:
 		if editor.cx != 0 {
 			editor.cx -= 1
 		}
-	case Direction.Right:
+	case Key.Right:
 		if editor.cx != editor.cols-1 {
 			editor.cx += 1
 		}
-	case Direction.Up:
+	case Key.Up:
 		if editor.cy != 0 {
 			editor.cy -= 1
 		}
-	case Direction.Down:
+	case Key.Down:
 		if editor.cy != editor.rows-1 {
 			editor.cy += 1
 		}
+	case Key.Home:
+		editor.cx = 0
+	case Key.End:
+		editor.cx = editor.cols-1
+	case Key.PageUp:
+		editor.cy = 0
+	case Key.PageDown:
+		editor.cy = editor.rows-1
 	}
 }
 
@@ -115,7 +127,7 @@ get_window_size :: proc() -> (rows: int, cols: int, ok: bool) {
 	return int(ws.ws_row), int(ws.ws_col), true
 }
 
-read_key :: proc() -> (Key, bool) {
+read_key :: proc() -> (Char, bool) {
 	buf: [1]u8
 	for {
 		n, err := linux.read(linux.STDIN_FILENO, buf[:])
@@ -126,19 +138,33 @@ read_key :: proc() -> (Key, bool) {
 			return 0, false
 		}
 		if buf[0] == '\x1b' {
-			seq: [2]u8
+			seq: [3]u8
 			if n1, _ := linux.read(linux.STDIN_FILENO, seq[:1]); n1 == 0 {
 				return u8('\x1b'), true
 			}
-			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:]); n2 == 0 {
+			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:2]); n2 == 0 {
 				return u8('\x1b'), true
 			}
 			if seq[0] == '[' {
-				switch seq[1] {
-				case 'A': return Direction.Up, true
-				case 'B': return Direction.Down, true
-				case 'C': return Direction.Right, true
-				case 'D': return Direction.Left, true
+				if seq[1] >= '0' && seq[1] <= '9' {
+					if n3, _ := linux.read(linux.STDIN_FILENO, seq[2:3]); n3 == 0 {
+						return u8('\x1b'), true
+					}
+					if seq[2] == '~' {
+						switch seq[1] {
+						case '5': return Key.PageUp, true
+						case '6': return Key.PageDown, true
+						case '1', '7': return Key.Home, true
+						case '4', '8': return Key.End, true
+						}
+					}
+				} else {
+					switch seq[1] {
+					case 'A': return Key.Up, true
+					case 'B': return Key.Down, true
+					case 'C': return Key.Right, true
+					case 'D': return Key.Left, true
+					}
 				}
 			}
 			return u8('\x1b'), true
@@ -159,15 +185,15 @@ process_key :: proc() -> bool {
 		case ctrl_key('q'):
 			return false
 		case 'h':
-			move_cursor(Direction.Left)
+			move_cursor(Key.Left)
 		case 'l':
-			move_cursor(Direction.Right)
+			move_cursor(Key.Right)
 		case 'k':
-			move_cursor(Direction.Up)
+			move_cursor(Key.Up)
 		case 'j':
-			move_cursor(Direction.Down)
+			move_cursor(Key.Down)
 		}
-	case Direction:
+	case Key:
 		move_cursor(k)
 	}
 	return true
