@@ -19,18 +19,8 @@ ESC_ERASE_IN_LINE :: "\x1b[K"
 
 Row :: struct {
 	chars: [dynamic]u8,
+	render: [dynamic]u8,
 }
-
-Editor_Config :: struct {
-	cx, cy: int,
-	rowd, cold: int,
-	height: int,
-	width: int,
-	rows: [dynamic]Row,
-	orig: posix.termios,
-}
-
-editor : Editor_Config
 
 Key :: enum {
 	Up,
@@ -49,6 +39,56 @@ Char :: union {
 	Key,
 }
 
+Winsize :: struct {
+	ws_row:    u16,
+	ws_col:    u16,
+	ws_xpixel: u16,
+	ws_ypixel: u16,
+}
+
+Editor_Config :: struct {
+	cx, cy: int,
+	rowd, cold: int,
+	height: int,
+	width: int,
+	rows: [dynamic]Row,
+	orig: posix.termios,
+}
+
+editor : Editor_Config
+
+
+enable_raw_mode :: proc() -> bool {
+	if posix.tcgetattr(posix.STDIN_FILENO, &editor.orig) != .OK {
+		return false
+	}
+
+	raw := editor.orig
+	raw.c_iflag &~= {.BRKINT, .ICRNL, .INPCK, .ISTRIP, .IXON}
+	raw.c_oflag &~= {.OPOST}
+	raw.c_cflag |= {.CS8}
+	raw.c_lflag &~= {.ECHO, .ICANON, .IEXTEN, .ISIG}
+	raw.c_cc[.VMIN] = 0
+	raw.c_cc[.VTIME] = 1
+	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
+		return false
+	}
+	return true
+}
+
+disable_raw_mode :: proc() {
+	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &editor.orig)
+}
+
+get_window_size :: proc() -> (rows: int, cols: int, ok: bool) {
+	ws: Winsize
+	ret := linux.ioctl(linux.Fd(linux.STDOUT_FILENO), linux.TIOCGWINSZ, uintptr(rawptr(&ws)))
+	if i64(ret) < 0 || ws.ws_col == 0 {
+		return 0, 0, false
+	}
+	return int(ws.ws_row), int(ws.ws_col), true
+}
+
 init_editor :: proc() -> bool {
 	height, width, ok := get_window_size()
 	if !ok {
@@ -58,6 +98,7 @@ init_editor :: proc() -> bool {
 	editor.width = width
 	return true
 }
+
 
 append_row :: proc(s: string) {
 	row: Row
@@ -80,12 +121,59 @@ editor_open :: proc(filename: string) -> bool {
 	return true
 }
 
+
 ctrl_key :: proc(k: u8) -> u8 {
 	return k & 0x1f
 }
 
-esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
-	fmt.sbprintf(sb, "\x1b[%d;%dH", row+1, col+1)
+read_key :: proc() -> (Char, bool) {
+	buf: [1]u8
+	for {
+		n, err := linux.read(linux.STDIN_FILENO, buf[:])
+		if n == 0 {
+			continue
+		}
+		if err != .NONE {
+			return 0, false
+		}
+		if buf[0] == '\x1b' {
+			seq: [3]u8
+			if n1, _ := linux.read(linux.STDIN_FILENO, seq[:1]); n1 == 0 {
+				return u8('\x1b'), true
+			}
+			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:2]); n2 == 0 {
+				return u8('\x1b'), true
+			}
+			if seq[0] == '[' {
+				if seq[1] >= '0' && seq[1] <= '9' {
+					if n3, _ := linux.read(linux.STDIN_FILENO, seq[2:3]); n3 == 0 {
+						return u8('\x1b'), true
+					}
+					if seq[2] == '~' {
+						switch seq[1] {
+						case '1': return Key.Home, true
+						case '3': return Key.Del, true
+						case '4': return Key.End, true
+						case '5': return Key.PageUp, true
+						case '6': return Key.PageDown, true
+						case '7': return Key.Home, true
+						case '8': return Key.End, true
+						}
+					}
+				} else {
+					switch seq[1] {
+					case 'A': return Key.Up, true
+					case 'B': return Key.Down, true
+					case 'C': return Key.Right, true
+					case 'D': return Key.Left, true
+					}
+				}
+			}
+			return u8('\x1b'), true
+		}
+
+		return buf[0], true
+	}
 }
 
 move_cursor :: proc(key: Key) {
@@ -137,95 +225,6 @@ move_cursor :: proc(key: Key) {
 	}
 }
 
-
-enable_raw_mode :: proc() -> bool {
-	if posix.tcgetattr(posix.STDIN_FILENO, &editor.orig) != .OK {
-		return false
-	}
-
-	raw := editor.orig
-	raw.c_iflag &~= {.BRKINT, .ICRNL, .INPCK, .ISTRIP, .IXON}
-	raw.c_oflag &~= {.OPOST}
-	raw.c_cflag |= {.CS8}
-	raw.c_lflag &~= {.ECHO, .ICANON, .IEXTEN, .ISIG}
-	raw.c_cc[.VMIN] = 0
-	raw.c_cc[.VTIME] = 1
-	if posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &raw) != .OK {
-		return false
-	}
-	return true
-}
-
-disable_raw_mode :: proc() {
-	posix.tcsetattr(posix.STDIN_FILENO, .TCSAFLUSH, &editor.orig)
-}
-
-Winsize :: struct {
-	ws_row:    u16,
-	ws_col:    u16,
-	ws_xpixel: u16,
-	ws_ypixel: u16,
-}
-
-get_window_size :: proc() -> (rows: int, cols: int, ok: bool) {
-	ws: Winsize
-	ret := linux.ioctl(linux.Fd(linux.STDOUT_FILENO), linux.TIOCGWINSZ, uintptr(rawptr(&ws)))
-	if i64(ret) < 0 || ws.ws_col == 0 {
-		return 0, 0, false
-	}
-	return int(ws.ws_row), int(ws.ws_col), true
-}
-
-read_key :: proc() -> (Char, bool) {
-	buf: [1]u8
-	for {
-		n, err := linux.read(linux.STDIN_FILENO, buf[:])
-		if n == 0 {
-			continue
-		}
-		if err != .NONE {
-			return 0, false
-		}
-		if buf[0] == '\x1b' {
-			seq: [3]u8
-			if n1, _ := linux.read(linux.STDIN_FILENO, seq[:1]); n1 == 0 {
-				return u8('\x1b'), true
-			}
-			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:2]); n2 == 0 {
-				return u8('\x1b'), true
-			}
-			if seq[0] == '[' {
-				if seq[1] >= '0' && seq[1] <= '9' {
-					if n3, _ := linux.read(linux.STDIN_FILENO, seq[2:3]); n3 == 0 {
-						return u8('\x1b'), true
-					}
-					if seq[2] == '~' {
-						switch seq[1] {
-						case '1': return Key.Home, true
-						case '3': return Key.Del, true
-						case '4': return Key.End, true
-						case '5': return Key.PageUp, true
-						case '6': return Key.PageDown, true
-						case '7': return Key.Home, true	
-						case '8': return Key.End, true
-						}
-					}
-				} else {
-					switch seq[1] {
-					case 'A': return Key.Up, true
-					case 'B': return Key.Down, true
-					case 'C': return Key.Right, true
-					case 'D': return Key.Left, true
-					}
-				}
-			}
-			return u8('\x1b'), true
-		}
-
-		return buf[0], true
-	}
-}
-
 process_key :: proc() -> bool {
 	key, ok := read_key()
 	if !ok {
@@ -251,20 +250,9 @@ process_key :: proc() -> bool {
 	return true
 }
 
-clear_screen :: proc() {
-	os.write_string(os.stdout, ESC_CLEAR_SCREEN)
-	os.write_string(os.stdout, ESC_CURSOR_HOME)
-}
 
-refresh_screen :: proc(sb: ^strings.Builder) {
-	scroll()
-	strings.builder_reset(sb)
-	strings.write_string(sb, ESC_HIDE_CURSOR)
-	strings.write_string(sb, ESC_CURSOR_HOME)
-	draw_rows(sb)
-	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.cx - editor.cold))
-	strings.write_string(sb, ESC_SHOW_CURSOR)
-	os.write_string(os.stdout, strings.to_string(sb^))
+esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
+	fmt.sbprintf(sb, "\x1b[%d;%dH", row+1, col+1)
 }
 
 scroll :: proc() {
@@ -313,6 +301,23 @@ draw_rows :: proc(sb: ^strings.Builder) {
 		}
 	}
 }
+
+clear_screen :: proc() {
+	os.write_string(os.stdout, ESC_CLEAR_SCREEN)
+	os.write_string(os.stdout, ESC_CURSOR_HOME)
+}
+
+refresh_screen :: proc(sb: ^strings.Builder) {
+	scroll()
+	strings.builder_reset(sb)
+	strings.write_string(sb, ESC_HIDE_CURSOR)
+	strings.write_string(sb, ESC_CURSOR_HOME)
+	draw_rows(sb)
+	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.cx - editor.cold))
+	strings.write_string(sb, ESC_SHOW_CURSOR)
+	os.write_string(os.stdout, strings.to_string(sb^))
+}
+
 
 main :: proc() {
 	if len(os.args) != 2 {
