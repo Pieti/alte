@@ -48,7 +48,7 @@ Winsize :: struct {
 }
 
 Editor_Config :: struct {
-	cx, cy: int,
+	cx, cy, rx: int,
 	rowd, cold: int,
 	height: int,
 	width: int,
@@ -132,6 +132,17 @@ update_row :: proc(row: ^Row) {
 			idx += 1
 		}
 	}
+}
+
+row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
+	rx := 0
+	for j in 0..<cx {
+		if row.chars[j] == '\t' {
+			rx += (TAB_STOP - 1) - (rx % TAB_STOP)
+		}
+		rx += 1
+	}
+	return rx
 }
 
 editor_open :: proc(filename: string) -> bool {
@@ -283,17 +294,22 @@ esc_cursor_pos :: proc(sb: ^strings.Builder, row, col: int) {
 }
 
 scroll :: proc() {
+	editor.rx = 0
+	if editor.cy < len(editor.rows) {
+		editor.rx = row_cx_to_rx(&editor.rows[editor.cy], editor.cx)
+	}
+
 	if editor.cy < editor.rowd {
 		editor.rowd = editor.cy
 	}
 	if editor.cy >= editor.rowd + editor.height {
 		editor.rowd = editor.cy - editor.height + 1
 	}
-	if editor.cx < editor.cold {
-		editor.cold = editor.cx
+	if editor.rx < editor.cold {
+		editor.cold = editor.rx
 	}
-	if editor.cx >= editor.cold + editor.width {
-		editor.cold = editor.cx - editor.width + 1
+	if editor.rx >= editor.cold + editor.width {
+		editor.cold = editor.rx - editor.width + 1
 	}
 }
 
@@ -340,7 +356,7 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 	strings.write_string(sb, ESC_HIDE_CURSOR)
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
-	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.cx - editor.cold))
+	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
 }
