@@ -59,6 +59,7 @@ Editor_Config :: struct {
 	rows: [dynamic]Row,
 	filename: string,
 	statusmsg: string,
+	statusmsg_time: time.Time,
 	orig: posix.termios,
 }
 
@@ -369,16 +370,15 @@ draw_status_bar :: proc(sb: ^strings.Builder) {
 
 draw_message_bar :: proc(sb: ^strings.Builder) {
 	strings.write_string(sb, ESC_INVERT_COLORS)
-	time_buf: [8]u8
-	left := fmt.tprintf("%s | %s", editor.statusmsg, time.to_string_hms(time.now(), time_buf[:]))
-	right := fmt.tprintf("%d lines", len(editor.rows))
-	gap := editor.width - len(left) - len(right)
-	strings.write_string(sb, left)
-	if gap > 0 {
-		for _ in 0..<gap {
-			strings.write_string(sb, " ")
+	if time.since(editor.statusmsg_time) < time.Second * 5 {
+		if len(editor.statusmsg) > editor.width {
+			strings.write_string(sb, editor.statusmsg[:editor.width])
+		} else {
+			strings.write_string(sb, editor.statusmsg)
 		}
-		strings.write_string(sb, right)
+	}
+	for i in len(editor.statusmsg)..<editor.width {
+		strings.write_string(sb, " ")
 	}
 	strings.write_string(sb, ESC_RESET_COLORS)
 }
@@ -399,6 +399,11 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
+}
+
+set_status_message :: proc(msg: string) {
+	editor.statusmsg = msg
+	editor.statusmsg_time = time.now()
 }
 
 main :: proc() {
@@ -425,7 +430,7 @@ main :: proc() {
 	strings.builder_init_len_cap(&sb, 0, editor.height * editor.width)
 	defer(strings.builder_destroy(&sb))
 
-	editor.statusmsg = "HELP: Ctrl-Q = quit"
+	set_status_message("HELP: Ctrl-Q = quit")
 
 	for {
 		refresh_screen(&sb)
