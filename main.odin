@@ -10,12 +10,15 @@ ALTE_VERSION :: "0.0.1"
 APP_NAME :: "Alte"
 WELCOME :: APP_NAME + " -- version " + ALTE_VERSION
 TAB_STOP :: 8
+STATUS_LINE_HEIGHT :: 1
 
 ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
 ESC_HIDE_CURSOR :: "\x1b[?25l"
 ESC_SHOW_CURSOR :: "\x1b[?25h"
 ESC_ERASE_IN_LINE :: "\x1b[K"
+ESC_INVERT_COLORS :: "\x1b[7m"
+ESC_RESET_COLORS :: "\x1b[0m"
 
 
 Row :: struct {
@@ -53,6 +56,7 @@ Editor_Config :: struct {
 	height: int,
 	width: int,
 	rows: [dynamic]Row,
+	filename: string,
 	orig: posix.termios,
 }
 
@@ -95,7 +99,7 @@ init_editor :: proc() -> bool {
 	if !ok {
 		return false
 	}
-	editor.height = height
+	editor.height = height-STATUS_LINE_HEIGHT
 	editor.width = width
 	return true
 }
@@ -146,6 +150,7 @@ row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
 }
 
 editor_open :: proc(filename: string) -> bool {
+	editor.filename = filename
 	data, err := os.read_entire_file(filename, context.allocator)
 	if err != .NONE {
 		return false
@@ -339,10 +344,25 @@ draw_rows :: proc(sb: ^strings.Builder) {
 			strings.write_string(sb, string(dynline))
 		}
 		strings.write_string(sb, ESC_ERASE_IN_LINE)
-		if y < editor.height-1 {
-			strings.write_string(sb, "\r\n")
-		}
+		strings.write_string(sb, "\r\n")
 	}
+}
+
+draw_status_bar :: proc(sb: ^strings.Builder) {
+	left := fmt.tprintf("%s - %d lines", editor.filename, len(editor.rows))
+	right := fmt.tprintf("%d/%d", editor.cy + 1, len(editor.rows))
+	gap := editor.width - len(left) - len(right)
+
+	strings.write_string(sb, ESC_INVERT_COLORS)
+	strings.write_string(sb, left)
+	if gap > 0 {
+		for _ in 0..<gap {
+			strings.write_string(sb, " ")
+		}
+		strings.write_string(sb, right)
+	}
+	strings.write_string(sb, ESC_RESET_COLORS)
+
 }
 
 clear_screen :: proc() {
@@ -356,6 +376,7 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 	strings.write_string(sb, ESC_HIDE_CURSOR)
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
+	draw_status_bar(sb)
 	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
