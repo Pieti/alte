@@ -9,6 +9,7 @@ import "core:os"
 ALTE_VERSION :: "0.0.1"
 APP_NAME :: "Alte"
 WELCOME :: APP_NAME + " -- version " + ALTE_VERSION
+TAB_STOP :: 8
 
 ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
@@ -105,6 +106,32 @@ append_row :: proc(s: string) {
 	row.chars = make([dynamic]u8, len(s))
 	copy(row.chars[:], transmute([]u8)s)
 	append(&editor.rows, row)
+	update_row(&editor.rows[len(editor.rows)-1])
+}
+
+update_row :: proc(row: ^Row) {
+	tabs := 0
+	for c in row.chars {
+		if c == '\t' {
+			tabs += 1
+		}
+	}
+
+	row.render = make([dynamic]u8, len(row.chars) + tabs * (TAB_STOP - 1))
+	idx := 0
+	for c in row.chars {
+		if c == '\t' {
+			row.render[idx] = ' '
+			idx += 1
+			for idx % TAB_STOP != 0 {
+				row.render[idx] = ' '
+				idx += 1
+			}
+		} else {
+			row.render[idx] = c
+			idx += 1
+		}
+	}
 }
 
 editor_open :: proc(filename: string) -> bool {
@@ -289,7 +316,7 @@ draw_rows :: proc(sb: ^strings.Builder) {
 				strings.write_string(sb, "~")
 			}
 		} else {
-			line := editor.rows[yd].chars
+			line := editor.rows[yd].render
 			start := min(editor.cold, len(line))
 			end := min(editor.cold + editor.width, len(line))
 			dynline := line[start:end]
