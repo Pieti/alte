@@ -4,13 +4,14 @@ import "core:fmt"
 import "core:strings"
 import "core:sys/linux"
 import "core:sys/posix"
+import "core:time"
 import "core:os"
 
 ALTE_VERSION :: "0.0.1"
 APP_NAME :: "Alte"
 WELCOME :: APP_NAME + " -- version " + ALTE_VERSION
 TAB_STOP :: 8
-STATUS_LINE_HEIGHT :: 1
+STATUS_LINE_HEIGHT :: 2
 
 ESC_CLEAR_SCREEN :: "\x1b[2J"
 ESC_CURSOR_HOME :: "\x1b[H"
@@ -57,6 +58,7 @@ Editor_Config :: struct {
 	width: int,
 	rows: [dynamic]Row,
 	filename: string,
+	statusmsg: string,
 	orig: posix.termios,
 }
 
@@ -365,6 +367,22 @@ draw_status_bar :: proc(sb: ^strings.Builder) {
 
 }
 
+draw_message_bar :: proc(sb: ^strings.Builder) {
+	strings.write_string(sb, ESC_INVERT_COLORS)
+	time_buf: [8]u8
+	left := fmt.tprintf("%s | %s", editor.statusmsg, time.to_string_hms(time.now(), time_buf[:]))
+	right := fmt.tprintf("%d lines", len(editor.rows))
+	gap := editor.width - len(left) - len(right)
+	strings.write_string(sb, left)
+	if gap > 0 {
+		for _ in 0..<gap {
+			strings.write_string(sb, " ")
+		}
+		strings.write_string(sb, right)
+	}
+	strings.write_string(sb, ESC_RESET_COLORS)
+}
+
 clear_screen :: proc() {
 	os.write_string(os.stdout, ESC_CLEAR_SCREEN)
 	os.write_string(os.stdout, ESC_CURSOR_HOME)
@@ -377,11 +395,11 @@ refresh_screen :: proc(sb: ^strings.Builder) {
 	strings.write_string(sb, ESC_CURSOR_HOME)
 	draw_rows(sb)
 	draw_status_bar(sb)
+	draw_message_bar(sb)
 	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
 	strings.write_string(sb, ESC_SHOW_CURSOR)
 	os.write_string(os.stdout, strings.to_string(sb^))
 }
-
 
 main :: proc() {
 	if len(os.args) != 2 {
@@ -406,6 +424,8 @@ main :: proc() {
 	sb: strings.Builder
 	strings.builder_init_len_cap(&sb, 0, editor.height * editor.width)
 	defer(strings.builder_destroy(&sb))
+
+	editor.statusmsg = "HELP: Ctrl-Q = quit"
 
 	for {
 		refresh_screen(&sb)
