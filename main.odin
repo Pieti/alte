@@ -37,6 +37,9 @@ Key :: enum {
 	PageUp,
 	PageDown,
 	Del,
+	Escape,
+	Backspace,
+	Enter,
 }
 
 Char :: union {
@@ -116,6 +119,62 @@ append_row :: proc(s: string) {
 	update_row(&editor.rows[len(editor.rows)-1])
 }
 
+row_insert_char :: proc(row: ^Row, at: int, c: u8) -> bool {
+	at := at
+	if at < 0 || at > len(row.chars) {
+		at = len(row.chars)
+	}
+	if !inject_at(&row.chars, at, c) {
+		return false
+	}
+	update_row(row)
+	return true
+}
+
+insert_char :: proc(c: u8) {
+	if editor.cy == len(editor.rows) {
+		append_row("")
+	}
+	row_insert_char(&editor.rows[editor.cy], editor.cx, c)
+	editor.cx += 1
+}
+
+row_del_char :: proc(row: ^Row, at: int) {
+	if at < 0 || at >= len(row.chars) {
+		return
+	}
+	ordered_remove(&row.chars, at)
+	update_row(row)
+}
+
+delete_row :: proc(at: int) {
+	if at < 0 || at >= len(editor.rows) {
+		return
+	}
+	ordered_remove(&editor.rows, at)
+}
+
+
+delete_char :: proc() {
+	if editor.cy == len(editor.rows) do return
+	if editor.cx == 0 && editor.cy == 0 do return
+
+	if editor.cx > 0 {
+		row_del_char(&editor.rows[editor.cy], editor.cx - 1)
+		editor.cx -=1
+	} else {
+		editor.cx = len(editor.rows[editor.cy - 1].chars)
+		row_append(&editor.rows[editor.cy - 1], editor.rows[editor.cy].chars[:])
+		delete_row(editor.cy)
+		editor.cy -= 1
+	}
+}
+
+row_append :: proc(dst: ^Row, src: []u8) {
+	append(&dst.chars, ..src)
+	update_row(dst)
+}
+
 update_row :: proc(row: ^Row) {
 	tabs := 0
 	for c in row.chars {
@@ -139,6 +198,28 @@ update_row :: proc(row: ^Row) {
 			idx += 1
 		}
 	}
+}
+
+insert_row :: proc(at: int, s: string) {
+	row: Row
+	row.chars = make([dynamic]u8, len(s))
+	copy(row.chars[:], transmute([]u8)s)
+	inject_at(&editor.rows, at, row)
+	update_row(&editor.rows[at])
+}
+
+insert_newline :: proc() {
+	if editor.cy == len(editor.rows) {
+		append_row("")
+		return
+	} else {
+		right := string(editor.rows[editor.cy].chars[editor.cx:])
+		insert_row(editor.cy + 1, right)
+		resize_dynamic_array(&editor.rows[editor.cy].chars, editor.cx)
+		update_row(&editor.rows[editor.cy])
+	}
+	editor.cy += 1
+	editor.cx = 0
 }
 
 row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
@@ -185,15 +266,15 @@ read_key :: proc() -> (Char, bool) {
 		if buf[0] == '\x1b' {
 			seq: [3]u8
 			if n1, _ := linux.read(linux.STDIN_FILENO, seq[:1]); n1 == 0 {
-				return u8('\x1b'), true
+				return Key.Escape, true
 			}
 			if n2, _ := linux.read(linux.STDIN_FILENO, seq[1:2]); n2 == 0 {
-				return u8('\x1b'), true
+				return Key.Escape, true
 			}
 			if seq[0] == '[' {
 				if seq[1] >= '0' && seq[1] <= '9' {
 					if n3, _ := linux.read(linux.STDIN_FILENO, seq[2:3]); n3 == 0 {
-						return u8('\x1b'), true
+						return Key.Escape, true
 					}
 					if seq[2] == '~' {
 						switch seq[1] {
@@ -215,10 +296,19 @@ read_key :: proc() -> (Char, bool) {
 					}
 				}
 			}
-			return u8('\x1b'), true
+			return Key.Escape, true
 		}
 
-		return buf[0], true
+		switch buf[0] {
+		case '\r':
+				return Key.Enter, true
+		case '\x1b':
+				return Key.Escape, true
+		case 127:
+				return Key.Backspace, true
+		case:
+				return buf[0], true
+		}
 	}
 }
 
@@ -281,17 +371,24 @@ process_key :: proc() -> bool {
 		switch k {
 		case ctrl_key('q'):
 			return false
-		case 'h':
-			move_cursor(Key.Left)
-		case 'l':
-			move_cursor(Key.Right)
-		case 'k':
-			move_cursor(Key.Up)
-		case 'j':
-			move_cursor(Key.Down)
+		case ctrl_key('l'):
+		case:
+			insert_char(k)
 		}
 	case Key:
-		move_cursor(k)
+		#partial switch k {
+		case Key.Enter:
+			insert_newline()
+		case Key.PageUp, Key.PageDown, Key.Home, Key.End, Key.Up, Key.Down, Key.Left, Key.Right:
+			move_cursor(k)
+		case Key.Backspace: 
+			delete_char()
+		case Key.Del:
+			if editor.cy == len(editor.rows) {
+				return true
+			}
+			row_del_char(&editor.rows[editor.cy], editor.cx)
+		}
 	}
 	return true
 }
