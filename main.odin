@@ -61,6 +61,7 @@ Editor_Config :: struct {
 	width: int,
 	rows: [dynamic]Row,
 	dirty: int,
+	quit_confirm: bool,
 	filename: string,
 	statusmsg: string,
 	statusmsg_time: time.Time,
@@ -396,6 +397,11 @@ process_key :: proc() -> bool {
 	case u8:
 		switch k {
 		case ctrl_key('q'):
+			if editor.dirty != 0 && !editor.quit_confirm {
+				set_status_message("Unsaved changes! Press Ctrl-Q again to quit.")
+				editor.quit_confirm = true
+				return true
+			}
 			return false
 		case ctrl_key('o'):
 			editor_save()
