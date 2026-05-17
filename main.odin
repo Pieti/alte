@@ -233,6 +233,15 @@ row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
 	return rx
 }
 
+rows_to_string :: proc() -> string {
+	sb: strings.Builder
+	for i in 0..<len(editor.rows) {
+		strings.write_string(&sb, string(editor.rows[i].chars[:]))
+		strings.write_string(&sb, "\n")
+	}
+	return strings.to_string(sb)
+}
+
 editor_open :: proc(filename: string) -> bool {
 	editor.filename = filename
 	data, err := os.read_entire_file(filename, context.allocator)
@@ -248,6 +257,18 @@ editor_open :: proc(filename: string) -> bool {
 	return true
 }
 
+editor_save :: proc() -> bool {
+	if editor.filename == "" {
+		return false
+	}
+	str := rows_to_string()
+	err := os.write_entire_file_from_string(editor.filename, str)
+	if err != .NONE {
+		return false
+	}
+	set_status_message(fmt.tprintf("%d bytes written to disk", len(str)))
+	return true
+}
 
 ctrl_key :: proc(k: u8) -> u8 {
 	return k & 0x1f
@@ -371,6 +392,8 @@ process_key :: proc() -> bool {
 		switch k {
 		case ctrl_key('q'):
 			return false
+		case ctrl_key('o'):
+			editor_save()
 		case ctrl_key('l'):
 		case:
 			insert_char(k)
@@ -527,7 +550,7 @@ main :: proc() {
 	strings.builder_init_len_cap(&sb, 0, editor.height * editor.width)
 	defer(strings.builder_destroy(&sb))
 
-	set_status_message("HELP: Ctrl-Q = quit")
+	set_status_message("HELP: Ctrl-O = save | Ctrl-Q = quit")
 
 	for {
 		refresh_screen(&sb)
