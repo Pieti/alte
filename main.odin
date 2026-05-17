@@ -69,6 +69,7 @@ Editor_Config :: struct {
 }
 
 editor : Editor_Config
+sb : strings.Builder
 
 
 enable_raw_mode :: proc() -> bool {
@@ -264,7 +265,11 @@ editor_open :: proc(filename: string) -> bool {
 
 editor_save :: proc() -> bool {
 	if editor.filename == "" {
-		return false
+		editor.filename = editor_prompt("Save as: ")
+		if editor.filename == "" {
+				set_status_message("Save aborted")
+				return false
+		}
 	}
 	str := rows_to_string()
 	err := os.write_entire_file_from_string(editor.filename, str)
@@ -276,8 +281,42 @@ editor_save :: proc() -> bool {
 	return true
 }
 
+editor_prompt :: proc(prompt: string) -> string {
+
+	buf: [dynamic]u8
+	for {
+		set_status_message(fmt.tprintf("%s%s", prompt, string(buf[:])))
+		refresh_screen()
+		key, ok := read_key()
+		if !ok {
+			return ""
+		}
+		switch k in key {
+		case Key:
+			#partial switch k {
+			case Key.Enter:
+				return string(buf[:])
+			case Key.Escape:
+				return ""
+			case Key.Backspace, Key.Del:
+				if len(buf) > 0 {
+					pop(&buf)
+				}
+			}
+		case u8:
+			if !is_ctrl_key(k) && k != '\r' && k != 127 {
+				append_elem(&buf, k)
+			}
+		}
+	}
+}
+
 ctrl_key :: proc(k: u8) -> u8 {
 	return k & 0x1f
+}
+
+is_ctrl_key :: proc(k: u8) -> bool {
+	return k < 0x20 || k == 0x7f
 }
 
 read_key :: proc() -> (Char, bool) {
@@ -520,17 +559,17 @@ clear_screen :: proc() {
 	os.write_string(os.stdout, ESC_CURSOR_HOME)
 }
 
-refresh_screen :: proc(sb: ^strings.Builder) {
+refresh_screen :: proc() {
 	scroll()
-	strings.builder_reset(sb)
-	strings.write_string(sb, ESC_HIDE_CURSOR)
-	strings.write_string(sb, ESC_CURSOR_HOME)
-	draw_rows(sb)
-	draw_status_bar(sb)
-	draw_message_bar(sb)
-	esc_cursor_pos(sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
-	strings.write_string(sb, ESC_SHOW_CURSOR)
-	os.write_string(os.stdout, strings.to_string(sb^))
+	strings.builder_reset(&sb)
+	strings.write_string(&sb, ESC_HIDE_CURSOR)
+	strings.write_string(&sb, ESC_CURSOR_HOME)
+	draw_rows(&sb)
+	draw_status_bar(&sb)
+	draw_message_bar(&sb)
+	esc_cursor_pos(&sb, (editor.cy - editor.rowd), (editor.rx - editor.cold))
+	strings.write_string(&sb, ESC_SHOW_CURSOR)
+	os.write_string(os.stdout, strings.to_string(sb))
 }
 
 set_status_message :: proc(msg: string) {
@@ -539,9 +578,13 @@ set_status_message :: proc(msg: string) {
 }
 
 main :: proc() {
-	if len(os.args) != 2 {
+	filename: string
+	if len(os.args) > 2 {
 		fmt.println("Usage: alte <filename>")
 		os.exit(1)
+	}
+	if len(os.args) == 2 {
+		filename = os.args[1]
 	}
 
 	if !enable_raw_mode() {
@@ -554,18 +597,19 @@ main :: proc() {
 	}
 	defer clear_screen()
 
-	if !editor_open(os.args[1]) {
-		os.exit(1)
+	if filename != "" {
+		if !editor_open(filename) {
+			os.exit(1)
+		}
 	}
 
-	sb: strings.Builder
 	strings.builder_init_len_cap(&sb, 0, editor.height * editor.width)
 	defer(strings.builder_destroy(&sb))
 
 	set_status_message("HELP: Ctrl-O = save | Ctrl-Q = quit")
 
 	for {
-		refresh_screen(&sb)
+		refresh_screen()
 		if !process_key() {
 			break
 		}
