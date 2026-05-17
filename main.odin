@@ -120,7 +120,6 @@ append_row :: proc(s: string) {
 	copy(row.chars[:], transmute([]u8)s)
 	append(&editor.rows, row)
 	update_row(&editor.rows[len(editor.rows)-1])
-	editor.dirty += 1
 }
 
 row_insert_char :: proc(row: ^Row, at: int, c: u8) -> bool {
@@ -150,13 +149,17 @@ row_del_char :: proc(row: ^Row, at: int) {
 	}
 	ordered_remove(&row.chars, at)
 	update_row(row)
+	editor.dirty += 1
 }
 
 delete_row :: proc(at: int) {
 	if at < 0 || at >= len(editor.rows) {
 		return
 	}
+	delete(editor.rows[at].chars)
+	delete(editor.rows[at].render)
 	ordered_remove(&editor.rows, at)
+	editor.dirty += 1
 }
 
 
@@ -188,6 +191,7 @@ update_row :: proc(row: ^Row) {
 		}
 	}
 
+	delete(row.render)
 	row.render = make([dynamic]u8, len(row.chars) + tabs * (TAB_STOP - 1))
 	idx := 0
 	for c in row.chars {
@@ -211,6 +215,7 @@ insert_row :: proc(at: int, s: string) {
 	copy(row.chars[:], transmute([]u8)s)
 	inject_at(&editor.rows, at, row)
 	update_row(&editor.rows[at])
+	editor.dirty += 1
 }
 
 insert_newline :: proc() {
@@ -239,12 +244,15 @@ row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
 }
 
 rows_to_string :: proc() -> string {
-	sb: strings.Builder
+	row_sb: strings.Builder
+
 	for i in 0..<len(editor.rows) {
-		strings.write_string(&sb, string(editor.rows[i].chars[:]))
-		strings.write_string(&sb, "\n")
+		strings.write_string(&row_sb, string(editor.rows[i].chars[:]))
+		strings.write_string(&row_sb, "\n")
 	}
-	return strings.to_string(sb)
+	result := strings.clone(strings.to_string(row_sb))
+	strings.builder_destroy(&row_sb)
+	return result
 }
 
 editor_open :: proc(filename: string) -> bool {
@@ -272,8 +280,11 @@ editor_save :: proc() -> bool {
 		}
 	}
 	str := rows_to_string()
+	defer delete(str)
+
 	err := os.write_entire_file_from_string(editor.filename, str)
 	if err != .NONE {
+		set_status_message(fmt.tprintf("Save failed: %v", err))
 		return false
 	}
 	set_status_message(fmt.tprintf("%d bytes written to disk", len(str)))
@@ -284,6 +295,7 @@ editor_save :: proc() -> bool {
 editor_prompt :: proc(prompt: string) -> string {
 
 	buf: [dynamic]u8
+	defer delete(buf)
 	for {
 		set_status_message(fmt.tprintf("%s%s", prompt, string(buf[:])))
 		refresh_screen()
@@ -295,7 +307,7 @@ editor_prompt :: proc(prompt: string) -> string {
 		case Key:
 			#partial switch k {
 			case Key.Enter:
-				return string(buf[:])
+				return strings.clone(string(buf[:]))
 			case Key.Escape:
 				return ""
 			case Key.Backspace, Key.Del:
@@ -382,8 +394,6 @@ move_cursor :: proc(key: Key) {
 	row : Row
 	if len(editor.rows) > 0 {
 		row = editor.rows[editor.cy]
-	} else {
-		row.chars = make([dynamic]u8, 0)
 	}
 
 	#partial switch key {
@@ -420,9 +430,9 @@ move_cursor :: proc(key: Key) {
 	}
 
 	if editor.cy >= len(editor.rows) {
-		editor.cy = len(editor.rows) - 1
+		editor.cy = max(0, len(editor.rows) - 1)
 	}
-	if editor.cx > len(editor.rows[editor.cy].chars) {
+	if len(editor.rows) > 0 && editor.cx > len(editor.rows[editor.cy].chars) {
 		editor.cx = len(editor.rows[editor.cy].chars)
 	}
 }
@@ -536,6 +546,7 @@ draw_status_bar :: proc(sb: ^strings.Builder) {
 		strings.write_string(sb, right)
 	}
 	strings.write_string(sb, ESC_RESET_COLORS)
+	strings.write_string(sb, "\r\n")
 
 }
 
@@ -547,6 +558,8 @@ draw_message_bar :: proc(sb: ^strings.Builder) {
 		} else {
 			strings.write_string(sb, editor.statusmsg)
 		}
+	} else {
+		editor.statusmsg = ""
 	}
 	for i in len(editor.statusmsg)..<editor.width {
 		strings.write_string(sb, " ")
@@ -593,12 +606,15 @@ main :: proc() {
 	defer disable_raw_mode()
 
 	if !init_editor() {
+		disable_raw_mode()
 		os.exit(1)
 	}
 	defer clear_screen()
 
 	if filename != "" {
 		if !editor_open(filename) {
+			disable_raw_mode()
+			clear_screen()
 			os.exit(1)
 		}
 	}
