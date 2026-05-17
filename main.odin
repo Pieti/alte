@@ -60,6 +60,7 @@ Editor_Config :: struct {
 	height: int,
 	width: int,
 	rows: [dynamic]Row,
+	dirty: int,
 	filename: string,
 	statusmsg: string,
 	statusmsg_time: time.Time,
@@ -117,6 +118,7 @@ append_row :: proc(s: string) {
 	copy(row.chars[:], transmute([]u8)s)
 	append(&editor.rows, row)
 	update_row(&editor.rows[len(editor.rows)-1])
+	editor.dirty += 1
 }
 
 row_insert_char :: proc(row: ^Row, at: int, c: u8) -> bool {
@@ -128,6 +130,7 @@ row_insert_char :: proc(row: ^Row, at: int, c: u8) -> bool {
 		return false
 	}
 	update_row(row)
+	editor.dirty += 1
 	return true
 }
 
@@ -254,6 +257,7 @@ editor_open :: proc(filename: string) -> bool {
 	for line in strings.split_lines_iterator(&content) {
 		append_row(line)
 	}
+	editor.dirty = 0
 	return true
 }
 
@@ -267,6 +271,7 @@ editor_save :: proc() -> bool {
 		return false
 	}
 	set_status_message(fmt.tprintf("%d bytes written to disk", len(str)))
+	editor.dirty = 0
 	return true
 }
 
@@ -472,7 +477,8 @@ draw_rows :: proc(sb: ^strings.Builder) {
 }
 
 draw_status_bar :: proc(sb: ^strings.Builder) {
-	left := fmt.tprintf("%s - %d lines", editor.filename, len(editor.rows))
+	modified := " (modified)" if editor.dirty != 0 else ""
+	left := fmt.tprintf("%s - %d lines%s", editor.filename, len(editor.rows), modified)
 	right := fmt.tprintf("%d/%d", editor.cy + 1, len(editor.rows))
 	gap := editor.width - len(left) - len(right)
 
