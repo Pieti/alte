@@ -247,8 +247,8 @@ row_cx_to_rx :: proc(row: ^Row, cx: int) -> int {
 rows_to_string :: proc() -> string {
 	row_sb: strings.Builder
 
-	for i in 0..<len(editor.rows) {
-		strings.write_string(&row_sb, string(editor.rows[i].chars[:]))
+	for row in editor.rows{
+		strings.write_string(&row_sb, string(row.chars[:]))
 		strings.write_string(&row_sb, "\n")
 	}
 	result := strings.clone(strings.to_string(row_sb))
@@ -528,7 +528,7 @@ draw_rows :: proc(sb: ^strings.Builder) {
 			start := min(editor.cold, len(line))
 			end := min(editor.cold + editor.width, len(line))
 			dynline := line[start:end]
-			strings.write_string(sb, string(dynline))
+			strings.write_bytes(sb, dynline)
 		}
 		strings.write_string(sb, ESC_ERASE_IN_LINE)
 		strings.write_string(sb, "\r\n")
@@ -565,7 +565,7 @@ draw_message_bar :: proc(sb: ^strings.Builder) {
 	} else {
 		editor.statusmsg = ""
 	}
-	for i in len(editor.statusmsg)..<editor.width {
+	for _ in len(editor.statusmsg)..<editor.width {
 		strings.write_string(sb, " ")
 	}
 	strings.write_string(sb, ESC_RESET_COLORS)
