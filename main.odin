@@ -185,27 +185,15 @@ row_append :: proc(dst: ^Row, src: []u8) {
 }
 
 update_row :: proc(row: ^Row) {
-	tabs := 0
+	clear(&row.render)
 	for c in row.chars {
 		if c == '\t' {
-			tabs += 1
-		}
-	}
-
-	delete(row.render)
-	row.render = make([dynamic]u8, len(row.chars) + tabs * (TAB_STOP - 1))
-	idx := 0
-	for c in row.chars {
-		if c == '\t' {
-			row.render[idx] = ' '
-			idx += 1
-			for idx % TAB_STOP != 0 {
-				row.render[idx] = ' '
-				idx += 1
+			append(&row.render, u8(' '))
+			for len(row.render) % TAB_STOP != 0 {
+				append(&row.render, u8(' '))
 			}
 		} else {
-			row.render[idx] = c
-			idx += 1
+			append(&row.render, c)
 		}
 	}
 }
